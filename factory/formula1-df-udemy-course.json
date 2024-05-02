@@ -1,0 +1,9 @@
+{
+	"name": "formula1-df-udemy-course",
+	"location": "eastus",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "12e55827-d77f-454f-81c7-751c6997f044",
+		"tenantId": "b527c5db-f61a-4a8c-ba71-b91dfed56981"
+	}
+}
