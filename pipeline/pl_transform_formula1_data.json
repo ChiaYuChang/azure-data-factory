@@ -1,0 +1,12 @@
+{
+	"name": "pl_transform_formula1_data",
+	"properties": {
+		"concurrency": 1,
+		"parameters": {
+			"p_window_end_date": {
+				"type": "string"
+			}
+		},
+		"annotations": []
+	}
+}
