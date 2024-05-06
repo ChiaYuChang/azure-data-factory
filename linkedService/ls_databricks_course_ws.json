@@ -7,22 +7,7 @@
 			"domain": "https://adb-1166845494932407.7.azuredatabricks.net",
 			"authentication": "MSI",
 			"workspaceResourceId": "/subscriptions/0c040362-4550-4be8-9248-64fbb2b1ba81/resourceGroups/Udemy-Azure_Databricks_and_Spark_For_Data_Engineers/providers/Microsoft.Databricks/workspaces/Databricks_course",
-			"newClusterNodeType": "Standard_D4s_v3",
-			"newClusterNumOfWorker": "1",
-			"newClusterSparkConf": {
-				"spark.hadoop.fs.azure.account.oauth.provider.type.formula1dludemycourse.dfs.core.windows.net": "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-				"spark.hadoop.fs.azure.account.oauth2.client.id.formula1dludemycourse.dfs.core.windows.net": "{{secrets/formula1-scope/client-id}}",
-				"spark.hadoop.fs.azure.account.oauth2.client.endpoint.formula1dludemycourse.dfs.core.windows.net": "https://login.microsoftonline.com/b527c5db-f61a-4a8c-ba71-b91dfed56981/oauth2/token",
-				"spark.hadoop.fs.azure.account.oauth2.client.secret.formula1dludemycourse.dfs.core.windows.net": "{{secrets/formula1-scope/client-secret}}",
-				"spark.hadoop.fs.azure.account.auth.type.formula1dludemycourse.dfs.core.windows.net": "OAuth"
-			},
-			"newClusterSparkEnvVars": {
-				"PYSPARK_PYTHON": "/databricks/python3/bin/python3"
-			},
-			"newClusterVersion": "14.3.x-scala2.12",
-			"clusterOption": "Fixed",
-			"newClusterInitScripts": [],
-			"dataSecurityMode": "SINGLE_USER"
+			"existingClusterId": "0506-160806-wne8gzgq"
 		}
 	}
 }
