@@ -7,7 +7,7 @@
 			"domain": "https://adb-1166845494932407.7.azuredatabricks.net",
 			"authentication": "MSI",
 			"workspaceResourceId": "/subscriptions/0c040362-4550-4be8-9248-64fbb2b1ba81/resourceGroups/Udemy-Azure_Databricks_and_Spark_For_Data_Engineers/providers/Microsoft.Databricks/workspaces/Databricks_course",
-			"existingClusterId": "0418-171935-ix1o9poh"
+			"existingClusterId": "0506-080932-g26a518"
 		}
 	}
 }
