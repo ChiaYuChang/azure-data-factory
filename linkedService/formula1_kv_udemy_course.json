@@ -1,0 +1,10 @@
+{
+	"name": "formula1_kv_udemy_course",
+	"properties": {
+		"annotations": [],
+		"type": "AzureKeyVault",
+		"typeProperties": {
+			"baseUrl": "https://formula1-kv-udemy-course.vault.azure.net/"
+		}
+	}
+}
