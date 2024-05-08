@@ -7,7 +7,7 @@
 			"domain": "https://adb-1166845494932407.7.azuredatabricks.net",
 			"authentication": "MSI",
 			"workspaceResourceId": "/subscriptions/0c040362-4550-4be8-9248-64fbb2b1ba81/resourceGroups/Udemy-Azure_Databricks_and_Spark_For_Data_Engineers/providers/Microsoft.Databricks/workspaces/Databricks_course",
-			"newClusterNodeType": "Standard_D4s_v3",
+			"newClusterNodeType": "Standard_DS3_v2",
 			"newClusterNumOfWorker": "1",
 			"newClusterSparkEnvVars": {
 				"PYSPARK_PYTHON": "/databricks/python3/bin/python3"
