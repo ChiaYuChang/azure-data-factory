@@ -1,0 +1,184 @@
+{
+	"name": "pl_ingest_workflow",
+	"properties": {
+		"activities": [
+			{
+				"name": "Set databricks instance",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "databricks_instance",
+					"value": {
+						"value": "@concat('adb-', pipeline().parameters.DATABRICKS_WORKSPACE_NAME, '.azuredatabricks.net')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Get databricks access token from API",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Set databricks instance",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/x-www-form-urlencoded"
+					},
+					"url": {
+						"value": "@concat('https://', variables('databricks_instance'), '/oidc/v1/token')",
+						"type": "Expression"
+					},
+					"body": "grant_type=client_credentials&scope=all-apis",
+					"authentication": {
+						"type": "Basic",
+						"username": {
+							"value": "@pipeline().parameters.DATABRICKS_CLIENT_ID",
+							"type": "Expression"
+						},
+						"password": {
+							"type": "AzureKeyVaultSecret",
+							"store": {
+								"referenceName": "formula1_kv_udemy_course",
+								"type": "LinkedServiceReference"
+							},
+							"secretName": "databricks-client-secret"
+						}
+					}
+				}
+			},
+			{
+				"name": "Run Job Auth by Managed Id",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"job_id\": 261672099840286,\n    \"job_params\":\n    {\n        \"p_batch\":\"2021-04-18\",\n        \"p_data_source\":\"Ergast API\",\n        \"p_data_type\": \"batch\"\n    }\n}",
+						"type": "Expression"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+					}
+				}
+			},
+			{
+				"name": "Run Job",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Get databricks access token from API",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Authorization": {
+							"value": "@concat(activity('Get databricks access token from API').output.token_type, ' ', activity('Get databricks access token from API').output.access_token)",
+							"type": "Expression"
+						}
+					},
+					"url": {
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "\n{\n    \"job_id\": 261672099840286,\n    \"job_params\":\n    {\n        \"p_batch\":\"2021-04-18\",\n        \"p_data_source\":\"Ergast API\",\n        \"p_data_type\": \"batch\"\n    }\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Data flow1",
+				"type": "ExecuteDataFlow",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"compute": {
+						"coreCount": 8,
+						"computeType": "General"
+					},
+					"traceLevel": "Fine"
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"DATABRICKS_HOST": {
+				"type": "string",
+				"defaultValue": "https://accounts.azuredatabricks.net"
+			},
+			"DATABRICKS_CLIENT_ID": {
+				"type": "string",
+				"defaultValue": "380282b7-3b0a-41e1-a143-60c159468243"
+			},
+			"DATABRICKS_WORKSPACE_NAME": {
+				"type": "string",
+				"defaultValue": "1166845494932407.7"
+			},
+			"DATABRICKS_ACCOUNT_ID": {
+				"type": "string",
+				"defaultValue": "67aeafa9-9677-4a69-afc5-7d366447e3d3"
+			},
+			"DATABRICKS_WORKFLOW_JOBID": {
+				"type": "int",
+				"defaultValue": 261672099840286
+			}
+		},
+		"variables": {
+			"databricks_instance": {
+				"type": "String"
+			}
+		},
+		"annotations": []
+	}
+}
