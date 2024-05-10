@@ -22,8 +22,6 @@
 			{
 				"name": "Run_Job",
 				"type": "WebActivity",
-				"state": "Inactive",
-				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
 						"activity": "Set_databricks_instance",
@@ -62,8 +60,6 @@
 			{
 				"name": "Wait_until_workflow_ended",
 				"type": "Until",
-				"state": "Inactive",
-				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
 						"activity": "Set_workflow_job_run_id",
@@ -75,7 +71,7 @@
 				"userProperties": [],
 				"typeProperties": {
 					"expression": {
-						"value": "@contains(['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR', 'BLOCKED'], variables('job_state'))",
+						"value": "@contains(pipeline().parameters.DATABRICKS_TERMINATED_STATES, variables('job_state'))",
 						"type": "Expression"
 					},
 					"activities": [
@@ -150,54 +146,12 @@
 							}
 						}
 					],
-					"timeout": "0.00:00:30"
-				}
-			},
-			{
-				"name": "Check_job_result_state",
-				"type": "IfCondition",
-				"state": "Inactive",
-				"onInactiveMarkAs": "Succeeded",
-				"dependsOn": [
-					{
-						"activity": "Wait_until_workflow_ended",
-						"dependencyConditions": [
-							"Succeeded"
-						]
-					}
-				],
-				"userProperties": [],
-				"typeProperties": {
-					"expression": {
-						"value": "@equals(\n    activity('Check_job_state').output.state.result_state,\n    'SUCCESS'\n)",
-						"type": "Expression"
-					},
-					"ifTrueActivities": [
-						{
-							"name": "Update job state to result_state",
-							"type": "SetVariable",
-							"dependsOn": [],
-							"policy": {
-								"secureOutput": false,
-								"secureInput": false
-							},
-							"userProperties": [],
-							"typeProperties": {
-								"variableName": "job_state",
-								"value": {
-									"value": "@activity('Check_job_state').output.status.result_state",
-									"type": "Expression"
-								}
-							}
-						}
-					]
+					"timeout": "0.00:30:00"
 				}
 			},
 			{
 				"name": "Set_workflow_job_run_id",
 				"type": "SetVariable",
-				"state": "Inactive",
-				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
 						"activity": "Run_Job",
@@ -222,8 +176,6 @@
 			{
 				"name": "Cancel_Job",
 				"type": "WebActivity",
-				"state": "Inactive",
-				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
 						"activity": "Wait_until_workflow_ended",
@@ -243,11 +195,11 @@
 				"typeProperties": {
 					"method": "POST",
 					"url": {
-						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/cancel')",
 						"type": "Expression"
 					},
 					"body": {
-						"value": "@concat('{\"run_id: ',  variables('job_run_id'),'}')",
+						"value": "@concat('{\"run_id\": ',  variables('job_run_id'),'}')",
 						"type": "Expression"
 					},
 					"authentication": {
@@ -260,113 +212,27 @@
 				}
 			},
 			{
-				"name": "Wait_test",
-				"type": "Until",
+				"name": "Update job state to result_state",
+				"type": "SetVariable",
 				"dependsOn": [
 					{
-						"activity": "Set_databricks_instance",
+						"activity": "Wait_until_workflow_ended",
 						"dependencyConditions": [
 							"Succeeded"
 						]
 					}
 				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
 				"userProperties": [],
 				"typeProperties": {
-					"expression": {
-						"value": "@variables('test')",
+					"variableName": "job_state",
+					"value": {
+						"value": "@activity('Check_job_state').output.state.result_state",
 						"type": "Expression"
-					},
-					"activities": [
-						{
-							"name": "Wait 10 sec",
-							"type": "Wait",
-							"dependsOn": [],
-							"userProperties": [],
-							"typeProperties": {
-								"waitTimeInSeconds": 10
-							}
-						},
-						{
-							"name": "Set test",
-							"type": "SetVariable",
-							"dependsOn": [
-								{
-									"activity": "Update_job_state_to_life_cycle_state_copy1",
-									"dependencyConditions": [
-										"Succeeded"
-									]
-								}
-							],
-							"policy": {
-								"secureOutput": false,
-								"secureInput": false
-							},
-							"userProperties": [],
-							"typeProperties": {
-								"variableName": "test",
-								"value": true
-							}
-						},
-						{
-							"name": "Check_job_state_copy1",
-							"type": "WebActivity",
-							"dependsOn": [
-								{
-									"activity": "Wait 10 sec",
-									"dependencyConditions": [
-										"Succeeded"
-									]
-								}
-							],
-							"policy": {
-								"timeout": "0.12:00:00",
-								"retry": 0,
-								"retryIntervalInSeconds": 30,
-								"secureOutput": false,
-								"secureInput": false
-							},
-							"userProperties": [],
-							"typeProperties": {
-								"method": "GET",
-								"url": {
-									"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
-									"type": "Expression"
-								},
-								"authentication": {
-									"type": "MSI",
-									"resource": {
-										"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
-										"type": "Expression"
-									}
-								}
-							}
-						},
-						{
-							"name": "Update_job_state_to_life_cycle_state_copy1",
-							"type": "SetVariable",
-							"dependsOn": [
-								{
-									"activity": "Check_job_state_copy1",
-									"dependencyConditions": [
-										"Succeeded"
-									]
-								}
-							],
-							"policy": {
-								"secureOutput": false,
-								"secureInput": false
-							},
-							"userProperties": [],
-							"typeProperties": {
-								"variableName": "job_state",
-								"value": {
-									"value": "@activity('Check_job_state_copy1').output.state.life_cycle_state",
-									"type": "Expression"
-								}
-							}
-						}
-					],
-					"timeout": "0.12:00:00"
+					}
 				}
 			}
 		],
@@ -395,6 +261,15 @@
 			"DATABRICKS_RESOURCE": {
 				"type": "string",
 				"defaultValue": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+			},
+			"DATABRICKS_TERMINATED_STATES": {
+				"type": "array",
+				"defaultValue": [
+					"TERMINATED",
+					"SKIPPED",
+					"INTERNAL_ERROR",
+					"BLOCKED"
+				]
 			}
 		},
 		"variables": {
@@ -422,12 +297,7 @@
 				"defaultValue": 10
 			},
 			"job_run_id": {
-				"type": "Integer",
-				"defaultValue": 224976185630579
-			},
-			"test": {
-				"type": "Boolean",
-				"defaultValue": false
+				"type": "Integer"
 			}
 		},
 		"annotations": []
