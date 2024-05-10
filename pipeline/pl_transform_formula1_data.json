@@ -1,6 +1,47 @@
 {
 	"name": "pl_transform_formula1_data",
 	"properties": {
+		"activities": [
+			{
+				"name": "data Ingestion",
+				"type": "ExecutePipeline",
+				"dependsOn": [],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "pl_ingest_workflow",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "data transformation",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "data Ingestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "pl_transform_workflow",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			}
+		],
 		"concurrency": 1,
 		"parameters": {
 			"p_window_end_date": {
