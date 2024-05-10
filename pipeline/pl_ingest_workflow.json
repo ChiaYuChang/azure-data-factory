@@ -3,7 +3,7 @@
 	"properties": {
 		"activities": [
 			{
-				"name": "Set databricks instance",
+				"name": "Set_databricks_instance",
 				"type": "SetVariable",
 				"dependsOn": [],
 				"policy": {
@@ -20,59 +20,13 @@
 				}
 			},
 			{
-				"name": "Get databricks access token from API",
+				"name": "Run_Job",
 				"type": "WebActivity",
 				"state": "Inactive",
 				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
-						"activity": "Set databricks instance",
-						"dependencyConditions": [
-							"Succeeded"
-						]
-					}
-				],
-				"policy": {
-					"timeout": "0.12:00:00",
-					"retry": 0,
-					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
-					"secureInput": false
-				},
-				"userProperties": [],
-				"typeProperties": {
-					"method": "POST",
-					"headers": {
-						"Content-Type": "application/x-www-form-urlencoded"
-					},
-					"url": {
-						"value": "@concat('https://', variables('databricks_instance'), '/oidc/v1/token')",
-						"type": "Expression"
-					},
-					"body": "grant_type=client_credentials&scope=all-apis",
-					"authentication": {
-						"type": "Basic",
-						"username": {
-							"value": "@pipeline().parameters.DATABRICKS_CLIENT_ID",
-							"type": "Expression"
-						},
-						"password": {
-							"type": "AzureKeyVaultSecret",
-							"store": {
-								"referenceName": "formula1_kv_udemy_course",
-								"type": "LinkedServiceReference"
-							},
-							"secretName": "databricks-client-secret"
-						}
-					}
-				}
-			},
-			{
-				"name": "Run Job Auth by Managed Id",
-				"type": "WebActivity",
-				"dependsOn": [
-					{
-						"activity": "Set databricks instance",
+						"activity": "Set_databricks_instance",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -106,50 +60,13 @@
 				}
 			},
 			{
-				"name": "Run Job",
-				"type": "WebActivity",
+				"name": "Wait_until_workflow_ended",
+				"type": "Until",
 				"state": "Inactive",
 				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
-						"activity": "Get databricks access token from API",
-						"dependencyConditions": [
-							"Succeeded"
-						]
-					}
-				],
-				"policy": {
-					"timeout": "0.12:00:00",
-					"retry": 0,
-					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
-					"secureInput": false
-				},
-				"userProperties": [],
-				"typeProperties": {
-					"method": "POST",
-					"headers": {
-						"Authorization": {
-							"value": "@concat(activity('Get databricks access token from API').output.token_type, ' ', activity('Get databricks access token from API').output.access_token)",
-							"type": "Expression"
-						}
-					},
-					"url": {
-						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
-						"type": "Expression"
-					},
-					"body": {
-						"value": "\n{\n    \"job_id\": 261672099840286,\n    \"job_params\":\n    {\n        \"p_batch\":\"2021-04-18\",\n        \"p_data_source\":\"Ergast API\",\n        \"p_data_type\": \"batch\"\n    }\n}",
-						"type": "Expression"
-					}
-				}
-			},
-			{
-				"name": "Wait Until Workflow ended",
-				"type": "Until",
-				"dependsOn": [
-					{
-						"activity": "Run Job Auth by Managed Id",
+						"activity": "Set_workflow_job_run_id",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -158,12 +75,12 @@
 				"userProperties": [],
 				"typeProperties": {
 					"expression": {
-						"value": "@or(or(or(\n    equals(variables('job_state'), 'TERMINATED'),\n    equals(variables('job_state'), 'SKIPPED')\n    ),\n    equals(variables('job_state'), 'INTERNAL_ERROR')\n    ),\n    equals(variables('job_state'), 'BLOCKED')\n    )\n)",
+						"value": "@contains(['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR', 'BLOCKED'], variables('job_state'))",
 						"type": "Expression"
 					},
 					"activities": [
 						{
-							"name": "Get job state",
+							"name": "Check_job_state",
 							"type": "WebActivity",
 							"dependsOn": [],
 							"policy": {
@@ -177,7 +94,7 @@
 							"typeProperties": {
 								"method": "GET",
 								"url": {
-									"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', activity('Run Job Auth by Managed Id').output.run_id)",
+									"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
 									"type": "Expression"
 								},
 								"authentication": {
@@ -190,11 +107,11 @@
 							}
 						},
 						{
-							"name": "Update job state to life_cycle_state",
+							"name": "Update_job_state_to_life_cycle_state",
 							"type": "SetVariable",
 							"dependsOn": [
 								{
-									"activity": "Get job state",
+									"activity": "Check_job_state",
 									"dependencyConditions": [
 										"Succeeded"
 									]
@@ -208,17 +125,17 @@
 							"typeProperties": {
 								"variableName": "job_state",
 								"value": {
-									"value": "@activity('Get job state').output.state.life_cycle_state",
+									"value": "@activity('Check_job_state').output.state.life_cycle_state",
 									"type": "Expression"
 								}
 							}
 						},
 						{
-							"name": "Wait1",
+							"name": "Wait_to_recheck_job_state",
 							"type": "Wait",
 							"dependsOn": [
 								{
-									"activity": "Update job state to life_cycle_state",
+									"activity": "Update_job_state_to_life_cycle_state",
 									"dependencyConditions": [
 										"Succeeded"
 									]
@@ -233,15 +150,83 @@
 							}
 						}
 					],
-					"timeout": "0.00:15:00"
+					"timeout": "0.00:00:30"
 				}
 			},
 			{
-				"name": "Stop workflow",
-				"type": "WebActivity",
+				"name": "Check_job_result_state",
+				"type": "IfCondition",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
-						"activity": "Wait Until Workflow ended",
+						"activity": "Wait_until_workflow_ended",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(\n    activity('Check_job_state').output.state.result_state,\n    'SUCCESS'\n)",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Update job state to result_state",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "job_state",
+								"value": {
+									"value": "@activity('Check_job_state').output.status.result_state",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Set_workflow_job_run_id",
+				"type": "SetVariable",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [
+					{
+						"activity": "Run_Job",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "job_run_id",
+					"value": {
+						"value": "@activity('Run_Job').output.run_id",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Cancel_Job",
+				"type": "WebActivity",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [
+					{
+						"activity": "Wait_until_workflow_ended",
 						"dependencyConditions": [
 							"Failed"
 						]
@@ -258,11 +243,11 @@
 				"typeProperties": {
 					"method": "POST",
 					"url": {
-						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/cancel?run_id', activity('Run Job Auth by Managed Id').output.run_id)",
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
 						"type": "Expression"
 					},
 					"body": {
-						"value": "@concat('{\"job_id\": ', string(pipeline().parameters.DATABRICKS_WORKFLOW_JOB_ID), ',',\n    '\"job_params\":',\n        '{\"p_batch\":\"', variables('p_batch'), '\",',\n         '\"p_data_source\": \"', variables('p_data_source'), '\",',\n         '\"p_data_type\": \"', variables('p_data_type'), '\"}}')",
+						"value": "@concat('{\"run_id: ',  variables('job_run_id'),'}')",
 						"type": "Expression"
 					},
 					"authentication": {
@@ -275,11 +260,11 @@
 				}
 			},
 			{
-				"name": "Check job result_state",
-				"type": "IfCondition",
+				"name": "Wait_test",
+				"type": "Until",
 				"dependsOn": [
 					{
-						"activity": "Wait Until Workflow ended",
+						"activity": "Set_databricks_instance",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -288,14 +273,85 @@
 				"userProperties": [],
 				"typeProperties": {
 					"expression": {
-						"value": "@equals(\n    activity('Get job state').output.state.result_state,\n    'SUCCESS'\n)",
+						"value": "@variables('test')",
 						"type": "Expression"
 					},
-					"ifTrueActivities": [
+					"activities": [
 						{
-							"name": "Update job state to result_state",
-							"type": "SetVariable",
+							"name": "Wait 10 sec",
+							"type": "Wait",
 							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 10
+							}
+						},
+						{
+							"name": "Set test",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Update_job_state_to_life_cycle_state_copy1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "test",
+								"value": true
+							}
+						},
+						{
+							"name": "Check_job_state_copy1",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Wait 10 sec",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
+									"type": "Expression"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": {
+										"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Update_job_state_to_life_cycle_state_copy1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Check_job_state_copy1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
 							"policy": {
 								"secureOutput": false,
 								"secureInput": false
@@ -304,12 +360,13 @@
 							"typeProperties": {
 								"variableName": "job_state",
 								"value": {
-									"value": "@activity('Get job state').output.status.result_state",
+									"value": "@activity('Check_job_state_copy1').output.state.life_cycle_state",
 									"type": "Expression"
 								}
 							}
 						}
-					]
+					],
+					"timeout": "0.12:00:00"
 				}
 			}
 		],
@@ -363,6 +420,14 @@
 			"job_check_interval": {
 				"type": "Integer",
 				"defaultValue": 10
+			},
+			"job_run_id": {
+				"type": "Integer",
+				"defaultValue": 224976185630579
+			},
+			"test": {
+				"type": "Boolean",
+				"defaultValue": false
 			}
 		},
 		"annotations": []
