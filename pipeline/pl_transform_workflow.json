@@ -1,0 +1,356 @@
+{
+	"name": "pl_transform_workflow",
+	"properties": {
+		"activities": [
+			{
+				"name": "Set_databricks_instance",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "databricks_instance",
+					"value": {
+						"value": "@concat('adb-', pipeline().parameters.DATABRICKS_WORKSPACE_NAME, '.azuredatabricks.net')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Run_Job",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Set_databricks_instance",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "@concat('{\"job_id\": ', string(pipeline().parameters.DATABRICKS_WORKFLOW_JOB_ID), ',',\n    '\"job_params\":',\n        '{\"p_batch\":\"', variables('p_batch'), '\",',\n         '\"p_data_source\": \"', variables('p_data_source'), '\",',\n         '\"p_data_type\": \"', variables('p_data_type'), '\"}}')",
+						"type": "Expression"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": {
+							"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Wait_until_workflow_ended",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Set_workflow_job_run_id",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@contains(pipeline().parameters.DATABRICKS_TERMINATED_STATES, variables('job_state'))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Check_job_state",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
+									"type": "Expression"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": {
+										"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Update_job_state_to_life_cycle_state",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Check_job_state",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "job_state",
+								"value": {
+									"value": "@activity('Check_job_state').output.state.life_cycle_state",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Wait_to_recheck_job_state",
+							"type": "Wait",
+							"dependsOn": [
+								{
+									"activity": "Update_job_state_to_life_cycle_state",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": {
+									"value": "@variables('job_check_interval')",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.00:30:00"
+				}
+			},
+			{
+				"name": "Set_workflow_job_run_id",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Run_Job",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "job_run_id",
+					"value": {
+						"value": "@activity('Run_Job').output.run_id",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Cancel_Job",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Wait_until_workflow_ended",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/cancel')",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "@concat('{\"run_id\": ',  variables('job_run_id'),'}')",
+						"type": "Expression"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": {
+							"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Update job state to result_state",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Wait_until_workflow_ended",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "job_state",
+					"value": {
+						"value": "@activity('Check_job_state').output.state.result_state",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Job Timeout",
+				"type": "Fail",
+				"dependsOn": [
+					{
+						"activity": "Cancel_Job",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"message": "Job Timeout",
+					"errorCode": "500"
+				}
+			},
+			{
+				"name": "If Condition1",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Update job state to result_state",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('job_state'), 'SUCCESS')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Job Failed",
+							"type": "Fail",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"message": {
+									"value": "@concat('Job Failed: ', variables('job_state'))",
+									"type": "Expression"
+								},
+								"errorCode": "500"
+							}
+						}
+					]
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"DATABRICKS_HOST": {
+				"type": "string",
+				"defaultValue": "https://accounts.azuredatabricks.net"
+			},
+			"DATABRICKS_CLIENT_ID": {
+				"type": "string",
+				"defaultValue": "380282b7-3b0a-41e1-a143-60c159468243"
+			},
+			"DATABRICKS_WORKSPACE_NAME": {
+				"type": "string",
+				"defaultValue": "1166845494932407.7"
+			},
+			"DATABRICKS_ACCOUNT_ID": {
+				"type": "string",
+				"defaultValue": "67aeafa9-9677-4a69-afc5-7d366447e3d3"
+			},
+			"DATABRICKS_WORKFLOW_JOB_ID": {
+				"type": "int",
+				"defaultValue": 182922531367951
+			},
+			"DATABRICKS_RESOURCE": {
+				"type": "string",
+				"defaultValue": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+			},
+			"DATABRICKS_TERMINATED_STATES": {
+				"type": "array",
+				"defaultValue": [
+					"TERMINATED",
+					"SKIPPED",
+					"INTERNAL_ERROR",
+					"BLOCKED"
+				]
+			}
+		},
+		"variables": {
+			"databricks_instance": {
+				"type": "String"
+			},
+			"p_batch": {
+				"type": "String",
+				"defaultValue": "2021-03-21"
+			},
+			"p_data_source": {
+				"type": "String",
+				"defaultValue": "Ergast API"
+			},
+			"p_data_type": {
+				"type": "String",
+				"defaultValue": "batch"
+			},
+			"job_state": {
+				"type": "String",
+				"defaultValue": "PENDING"
+			},
+			"job_check_interval": {
+				"type": "Integer",
+				"defaultValue": 10
+			},
+			"job_run_id": {
+				"type": "Integer"
+			}
+		},
+		"annotations": []
+	}
+}
