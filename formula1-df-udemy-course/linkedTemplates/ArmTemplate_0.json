@@ -1,0 +1,876 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "formula1-df-udemy-course"
+		},
+		"ls_formula1_dl_storage_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'ls_formula1_dl_storage'"
+		},
+		"formula1_kv_udemy_course_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://formula1-kv-udemy-course.vault.azure.net/"
+		},
+		"ls_formula1_dl_storage_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://formula1dludemycourse.dfs.core.windows.net/"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_ingest_workflow')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Set_databricks_instance",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "databricks_instance",
+							"value": {
+								"value": "@concat('adb-', pipeline().parameters.DATABRICKS_WORKSPACE_NAME, '.azuredatabricks.net')",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Run_Job",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Set_databricks_instance",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "@concat('{\"job_id\": ', string(pipeline().parameters.DATABRICKS_WORKFLOW_JOB_ID), ',',\n    '\"job_params\":',\n        '{\"p_batch\":\"', variables('p_batch'), '\",',\n         '\"p_data_source\": \"', variables('p_data_source'), '\",',\n         '\"p_data_type\": \"', variables('p_data_type'), '\"}}')",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": {
+									"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+									"type": "Expression"
+								}
+							}
+						}
+					},
+					{
+						"name": "Wait_until_workflow_ended",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "Set_workflow_job_run_id",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@contains(pipeline().parameters.DATABRICKS_TERMINATED_STATES, variables('job_state'))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Check_job_state",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"url": {
+											"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
+											"type": "Expression"
+										},
+										"authentication": {
+											"type": "MSI",
+											"resource": {
+												"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+												"type": "Expression"
+											}
+										}
+									}
+								},
+								{
+									"name": "Update_job_state_to_life_cycle_state",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "Check_job_state",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "job_state",
+										"value": {
+											"value": "@activity('Check_job_state').output.state.life_cycle_state",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Wait_to_recheck_job_state",
+									"type": "Wait",
+									"dependsOn": [
+										{
+											"activity": "Update_job_state_to_life_cycle_state",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": {
+											"value": "@variables('job_check_interval')",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"timeout": "0.00:30:00"
+						}
+					},
+					{
+						"name": "Set_workflow_job_run_id",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "Run_Job",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "job_run_id",
+							"value": {
+								"value": "@activity('Run_Job').output.run_id",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Cancel_Job",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Wait_until_workflow_ended",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/cancel')",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "@concat('{\"run_id\": ',  variables('job_run_id'),'}')",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": {
+									"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+									"type": "Expression"
+								}
+							}
+						}
+					},
+					{
+						"name": "Update job state to result_state",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "Wait_until_workflow_ended",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "job_state",
+							"value": {
+								"value": "@activity('Check_job_state').output.state.result_state",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"concurrency": 1,
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"DATABRICKS_HOST": {
+						"type": "string",
+						"defaultValue": "https://accounts.azuredatabricks.net"
+					},
+					"DATABRICKS_CLIENT_ID": {
+						"type": "string",
+						"defaultValue": "380282b7-3b0a-41e1-a143-60c159468243"
+					},
+					"DATABRICKS_WORKSPACE_NAME": {
+						"type": "string",
+						"defaultValue": "1166845494932407.7"
+					},
+					"DATABRICKS_ACCOUNT_ID": {
+						"type": "string",
+						"defaultValue": "67aeafa9-9677-4a69-afc5-7d366447e3d3"
+					},
+					"DATABRICKS_WORKFLOW_JOB_ID": {
+						"type": "int",
+						"defaultValue": 261672099840286
+					},
+					"DATABRICKS_RESOURCE": {
+						"type": "string",
+						"defaultValue": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+					},
+					"DATABRICKS_TERMINATED_STATES": {
+						"type": "array",
+						"defaultValue": [
+							"TERMINATED",
+							"SKIPPED",
+							"INTERNAL_ERROR",
+							"BLOCKED"
+						]
+					}
+				},
+				"variables": {
+					"databricks_instance": {
+						"type": "String"
+					},
+					"p_batch": {
+						"type": "String",
+						"defaultValue": "2021-04-18"
+					},
+					"p_data_source": {
+						"type": "String",
+						"defaultValue": "Ergast API"
+					},
+					"p_data_type": {
+						"type": "String",
+						"defaultValue": "batch"
+					},
+					"job_state": {
+						"type": "String",
+						"defaultValue": "PENDING"
+					},
+					"job_check_interval": {
+						"type": "Integer",
+						"defaultValue": 10
+					},
+					"job_run_id": {
+						"type": "Integer"
+					}
+				},
+				"annotations": []
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_transform_workflow')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Set_databricks_instance",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "databricks_instance",
+							"value": {
+								"value": "@concat('adb-', pipeline().parameters.DATABRICKS_WORKSPACE_NAME, '.azuredatabricks.net')",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Run_Job",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Set_databricks_instance",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/run-now')",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "@concat('{\"job_id\": ', string(pipeline().parameters.DATABRICKS_WORKFLOW_JOB_ID), ',',\n    '\"job_params\":',\n        '{\"p_batch\":\"', variables('p_batch'), '\",',\n         '\"p_data_source\": \"', variables('p_data_source'), '\",',\n         '\"p_data_type\": \"', variables('p_data_type'), '\"}}')",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": {
+									"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+									"type": "Expression"
+								}
+							}
+						}
+					},
+					{
+						"name": "Wait_until_workflow_ended",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "Set_workflow_job_run_id",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@contains(pipeline().parameters.DATABRICKS_TERMINATED_STATES, variables('job_state'))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Check_job_state",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"url": {
+											"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/get?run_id=', variables('job_run_id'))",
+											"type": "Expression"
+										},
+										"authentication": {
+											"type": "MSI",
+											"resource": {
+												"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+												"type": "Expression"
+											}
+										}
+									}
+								},
+								{
+									"name": "Update_job_state_to_life_cycle_state",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "Check_job_state",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "job_state",
+										"value": {
+											"value": "@activity('Check_job_state').output.state.life_cycle_state",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Wait_to_recheck_job_state",
+									"type": "Wait",
+									"dependsOn": [
+										{
+											"activity": "Update_job_state_to_life_cycle_state",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": {
+											"value": "@variables('job_check_interval')",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"timeout": "0.00:30:00"
+						}
+					},
+					{
+						"name": "Set_workflow_job_run_id",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "Run_Job",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "job_run_id",
+							"value": {
+								"value": "@activity('Run_Job').output.run_id",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Cancel_Job",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Wait_until_workflow_ended",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@concat('https://', variables('databricks_instance'), '/api/2.1/jobs/runs/cancel')",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "@concat('{\"run_id\": ',  variables('job_run_id'),'}')",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": {
+									"value": "@pipeline().parameters.DATABRICKS_RESOURCE",
+									"type": "Expression"
+								}
+							}
+						}
+					},
+					{
+						"name": "Update job state to result_state",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "Wait_until_workflow_ended",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "job_state",
+							"value": {
+								"value": "@activity('Check_job_state').output.state.result_state",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Job Timeout",
+						"type": "Fail",
+						"dependsOn": [
+							{
+								"activity": "Cancel_Job",
+								"dependencyConditions": [
+									"Completed"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"message": "Job Timeout",
+							"errorCode": "500"
+						}
+					},
+					{
+						"name": "if_job_success",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "Update job state to result_state",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals(variables('job_state'), 'SUCCESS')",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "Job Failed",
+									"type": "Fail",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"message": {
+											"value": "@concat('Job Failed: ', variables('job_state'))",
+											"type": "Expression"
+										},
+										"errorCode": "500"
+									}
+								}
+							]
+						}
+					}
+				],
+				"concurrency": 1,
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"DATABRICKS_HOST": {
+						"type": "string",
+						"defaultValue": "https://accounts.azuredatabricks.net"
+					},
+					"DATABRICKS_CLIENT_ID": {
+						"type": "string",
+						"defaultValue": "380282b7-3b0a-41e1-a143-60c159468243"
+					},
+					"DATABRICKS_WORKSPACE_NAME": {
+						"type": "string",
+						"defaultValue": "1166845494932407.7"
+					},
+					"DATABRICKS_ACCOUNT_ID": {
+						"type": "string",
+						"defaultValue": "67aeafa9-9677-4a69-afc5-7d366447e3d3"
+					},
+					"DATABRICKS_WORKFLOW_JOB_ID": {
+						"type": "int",
+						"defaultValue": 182922531367951
+					},
+					"DATABRICKS_RESOURCE": {
+						"type": "string",
+						"defaultValue": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+					},
+					"DATABRICKS_TERMINATED_STATES": {
+						"type": "array",
+						"defaultValue": [
+							"TERMINATED",
+							"SKIPPED",
+							"INTERNAL_ERROR",
+							"BLOCKED"
+						]
+					}
+				},
+				"variables": {
+					"databricks_instance": {
+						"type": "String"
+					},
+					"p_batch": {
+						"type": "String",
+						"defaultValue": "2021-03-21"
+					},
+					"p_data_source": {
+						"type": "String",
+						"defaultValue": "Ergast API"
+					},
+					"p_data_type": {
+						"type": "String",
+						"defaultValue": "batch"
+					},
+					"job_state": {
+						"type": "String",
+						"defaultValue": "PENDING"
+					},
+					"job_check_interval": {
+						"type": "Integer",
+						"defaultValue": 10
+					},
+					"job_run_id": {
+						"type": "Integer"
+					}
+				},
+				"annotations": []
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/formula1_kv_udemy_course')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureKeyVault",
+				"typeProperties": {
+					"baseUrl": "[parameters('formula1_kv_udemy_course_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_databricks_course_ws')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureDatabricks",
+				"typeProperties": {
+					"domain": "https://adb-1166845494932407.7.azuredatabricks.net",
+					"authentication": "MSI",
+					"workspaceResourceId": "/subscriptions/0c040362-4550-4be8-9248-64fbb2b1ba81/resourceGroups/Udemy-Azure_Databricks_and_Spark_For_Data_Engineers/providers/Microsoft.Databricks/workspaces/Databricks_course",
+					"newClusterNodeType": "Standard_DS3_v2",
+					"newClusterNumOfWorker": "1",
+					"newClusterSparkEnvVars": {
+						"PYSPARK_PYTHON": "/databricks/python3/bin/python3"
+					},
+					"newClusterVersion": "14.3.x-scala2.12",
+					"clusterOption": "Fixed",
+					"newClusterInitScripts": [],
+					"dataSecurityMode": "USER_ISOLATION"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_formula1_dl_storage')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('ls_formula1_dl_storage_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('ls_formula1_dl_storage_accountKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_transform_formula1_data')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "data Ingestion",
+						"type": "ExecutePipeline",
+						"dependsOn": [],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "pl_ingest_workflow",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "data transformation",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "data Ingestion",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "pl_transform_workflow",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					}
+				],
+				"concurrency": 1,
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"p_window_end_date": {
+						"type": "string"
+					}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/pl_ingest_workflow')]",
+				"[concat(variables('factoryId'), '/pipelines/pl_transform_workflow')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_formula_raw')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_formula1_dl_storage",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"p_window_end_date": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": {
+							"value": "@concat('batch/', formatDateTime(dataset().p_window_end_date, 'yyyy-MM-dd'))",
+							"type": "Expression"
+						},
+						"fileSystem": "raw"
+					}
+				},
+				"schema": {
+					"type": "object",
+					"properties": {
+						"constructorId": {
+							"type": "integer"
+						},
+						"constructorRef": {
+							"type": "string"
+						},
+						"name": {
+							"type": "string"
+						},
+						"nationality": {
+							"type": "string"
+						},
+						"url": {
+							"type": "string"
+						}
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_formula1_dl_storage')]"
+			]
+		}
+	]
+}

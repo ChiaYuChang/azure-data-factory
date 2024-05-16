@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "formula1-df-udemy-course"
+		},
+		"ls_formula1_dl_storage_accountKey": {
+			"value": ""
+		},
+		"formula1_kv_udemy_course_properties_typeProperties_baseUrl": {
+			"value": "https://formula1-kv-udemy-course.vault.azure.net/"
+		},
+		"ls_formula1_dl_storage_properties_typeProperties_url": {
+			"value": "https://formula1dludemycourse.dfs.core.windows.net/"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
