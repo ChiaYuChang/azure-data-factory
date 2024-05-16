@@ -253,7 +253,7 @@
 				}
 			},
 			{
-				"name": "If Condition1",
+				"name": "if_job_success",
 				"type": "IfCondition",
 				"dependsOn": [
 					{
